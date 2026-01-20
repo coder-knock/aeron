@@ -118,8 +118,13 @@ import static org.agrona.SystemUtil.getSizeAsInt;
 import static org.agrona.SystemUtil.loadPropertiesFiles;
 
 /**
+ * 组件位于每个节点，负责协调集群内的共识，配合集群服务的生命周期。
  * Component which resides on each node and is responsible for coordinating consensus within a cluster in concert
  * with the lifecycle of clustered services.
+ * 1. Leader 选举
+ * 2. 日志复制
+ * 3. 会话管理
+ * 4. 客户端路由
  */
 @Versioned
 public final class ConsensusModule implements AutoCloseable

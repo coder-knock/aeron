@@ -24,7 +24,10 @@ import org.agrona.DirectBuffer;
 
 import java.util.concurrent.TimeUnit;
 
+
 /**
+ * 服务必须实现才能包含在集群中的接口。
+ * 该cluster对象应仅用于向集群发送消息或根据其他消息和定时器调度定时器。发送消息和定时器不应通过集群onStart(Cluster, Image)生命周期方法如、 onRoleChange(Cluster.Role) onTakeSnapshot(ExclusivePublication)onTerminate(Cluster)或，但会话生命周期方法除外。
  * Interface which a service must implement to be contained in the cluster.
  * <p>
  * The {@code cluster} object should only be used to send messages to the cluster or schedule timers in
@@ -32,6 +35,11 @@ import java.util.concurrent.TimeUnit;
  * methods like {@link #onStart(Cluster, Image)}, {@link #onRoleChange(Cluster.Role)} or
  * {@link #onTakeSnapshot(ExclusivePublication)}, or {@link #onTerminate(Cluster)}, except the session lifecycle
  * methods.
+ *
+ * 1. 处理客户端消息
+ * 2. 维护业务状态
+ * 3. 生成快照
+ * 4. 响应客户端
  */
 public interface ClusteredService
 {

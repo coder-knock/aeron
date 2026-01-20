@@ -48,6 +48,11 @@ import static java.lang.Math.min;
  * The tool will attempt to connect to the running MediaDriver and the Archive of the cluster node.
  * <p>
  * <em>Note: Run the tool only if the cluster is suspended or completely stopped!</em>
+ * 如果最新的共识模块快照在挂起的服务消息状态中存在分歧，则修补该快照的工具。
+ * 此工具在单个节点上修补状态。建议在领导节点上运行该工具并进行分发
+ * 将修补后的快照发送到集群中所有其他节点。
+ * 该工具将尝试连接到正在运行的MediaDriver和集群节点的Archive。
+ * 注意：仅当集群处于挂起或完全停止状态时才运行该工具！
  */
 public class ConsensusModuleSnapshotPendingServiceMessagesPatch
 {
@@ -59,6 +64,7 @@ public class ConsensusModuleSnapshotPendingServiceMessagesPatch
 
     /**
      * Create new patch instance this default Archive values initialized to
+     * 创建新的修补程序实例，此默认存档值初始化为
      * {@link AeronArchive.Configuration#localControlChannel()} and
      * {@link AeronArchive.Configuration#localControlStreamId()}.
      */

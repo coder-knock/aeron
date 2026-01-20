@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<sbe:messageSchema xmlns:sbe="http://fixprotocol.io/2016/sbe"
+                   package="io.aeron.sbe.benchmark.schema"
+                   id="1"
+                   version="1"
+                   semanticVersion="1.0.0"
+                   description="Complex Object Schema for Benchmark">
+    <types>
+        <composite name="messageHeader" description="消息头">
+            <type name="blockLength" primitiveType="uint16"/>
+            <type name="templateId" primitiveType="uint16"/>
+            <type name="schemaId" primitiveType="uint16"/>
+            <type name="version" primitiveType="uint16"/>
+        </composite>
+        <composite name="varStringEncoding" description="可变长度字符串编码">
+            <type name="length" primitiveType="uint32" maxValue="1073741824"/>
+            <type name="varData" primitiveType="uint8" length="0" characterEncoding="UTF-8"/>
+        </composite>
+        <composite name="groupSizeEncoding" description="组大小编码">
+            <type name="blockLength" primitiveType="uint16"/>
+            <type name="numInGroup" primitiveType="uint16"/>
+        </composite>
+        <enum name="BooleanType" encodingType="uint8" description="布尔类型">
+            <validValue name="FALSE">0</validValue>
+            <validValue name="TRUE">1</validValue>
+        </enum>
+    </types>
+
+    <!-- 嵌套对象定义 -->
+    <composite name="Address" description="地址信息">
+        <type name="street" primitiveType="uint8" length="0" characterEncoding="UTF-8"/>
+        <type name="city" primitiveType="uint8" length="0" characterEncoding="UTF-8"/>
+        <type name="zipCode" primitiveType="uint8" length="0" characterEncoding="UTF-8"/>
+        <type name="country" primitiveType="uint8" length="0" characterEncoding="UTF-8"/>
+    </composite>
+
+    <composite name="Contact" description="联系信息">
+        <type name="email" primitiveType="uint8" length="0" characterEncoding="UTF-8"/>
+        <type name="phone" primitiveType="uint8" length="0" characterEncoding="UTF-8"/>
+    </composite>
+    
+    <!-- 主消息定义 -->
+    <message name="ComplexObject" id="1" description="复杂对象">
+        <field name="id" id="1" type="int64"/>
+        <field name="name" id="2" type="varStringEncoding"/>
+        <field name="age" id="3" type="uint8"/>
+        <field name="score" id="4" type="double"/>
+        <field name="active" id="5" type="BooleanType"/>
+        <field name="createdAt" id="6" type="int64"/>
+        
+        <!-- 嵌套对象 -->
+        <group name="addresses" id="7" dimensionType="groupSizeEncoding">
+            <field name="street" id="8" type="varStringEncoding"/>
+            <field name="city" id="9" type="varStringEncoding"/>
+            <field name="zipCode" id="10" type="varStringEncoding"/>
+            <field name="country" id="11" type="varStringEncoding"/>
+        </group>
+        
+        <group name="contacts" id="12" dimensionType="groupSizeEncoding">
+            <field name="email" id="13" type="varStringEncoding"/>
+            <field name="phone" id="14" type="varStringEncoding"/>
+        </group>
+        
+        <!-- 数组字段 -->
+        <group name="tags" id="15" dimensionType="groupSizeEncoding">
+            <field name="tag" id="16" type="varStringEncoding"/>
+        </group>
+        
+        <group name="scores" id="17" dimensionType="groupSizeEncoding">
+            <field name="subject" id="18" type="varStringEncoding"/>
+            <field name="value" id="19" type="double"/>
+        </group>
+    </message>
+</sbe:messageSchema>
