@@ -1,8 +1,6 @@
 package io.aeron.sbe.benchmark.serializer;
 
-import io.aeron.sbe.benchmark.model.Address;
 import io.aeron.sbe.benchmark.model.ComplexObject;
-import io.aeron.sbe.benchmark.model.Contact;
 import io.aeron.sbe.benchmark.model.SubjectScore;
 import io.aeron.sbe.benchmark.schema.*;
 import org.agrona.DirectBuffer;

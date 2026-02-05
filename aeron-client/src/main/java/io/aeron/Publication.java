@@ -44,6 +44,14 @@ import static org.agrona.BitUtil.align;
  * <b>Note:</b> All methods are threadsafe except offer and tryClaim for the subclass
  * {@link ExclusivePublication}. In the case of {@link ConcurrentPublication} all methods are threadsafe.
  *
+ * Aeron发布者API，用于向给定通道和流ID对的订阅者发送消息。{@link Publication}通过{@link Aeron#addPublication(String, int)} {@link Aeron#addExclusivePublication(String, int)}
+ * 方法创建，并通过{@link #offer(DirectBuffer)}方法之一发送消息。
+ * <p>
+ * 用于tryClaim和offer的API是非阻塞的。
+ * <p>
+ * <b>注意：</b> 所有方法都是线程安全的，除了子类{@link ExclusivePublication}的offer和tryClaim方法。
+ * 对于{@link ConcurrentPublication}，所有方法都是线程安全的。
+ *
  * @see ConcurrentPublication
  * @see ExclusivePublication
  * @see Aeron#addPublication(String, int)
@@ -53,22 +61,31 @@ public abstract class Publication implements AutoCloseable
 {
     /**
      * The publication is not connected to a subscriber, this can be an intermittent state as subscribers come and go.
+     * 
+     * 出版物未连接到订阅者，这可能是订阅者来去时的间歇状态。
      */
     public static final long NOT_CONNECTED = -1;
 
     /**
      * The offer failed due to back pressure from the subscribers preventing further transmission.
+     * 
+     * 由于来自订阅者的背压阻止了进一步传输，导致发布失败。
      */
     public static final long BACK_PRESSURED = -2;
 
     /**
      * The offer failed due to an administration action and should be retried.
      * The action is an operation such as log rotation which is likely to have succeeded by the next retry attempt.
+     * 
+     * 由于管理操作导致发布失败，应重试。
+     * 此操作是诸如日志轮换之类的操作，可能在下一次重试尝试时成功。
      */
     public static final long ADMIN_ACTION = -3;
 
     /**
      * The {@link Publication} has been closed and should no longer be used.
+     * 
+     * {@link Publication}已关闭，不应再使用。
      */
     public static final long CLOSED = -4;
 
@@ -78,64 +95,93 @@ public abstract class Publication implements AutoCloseable
      * <p>
      * If this happens then the publication should be closed and a new one added. To make it less likely to happen then
      * increase the term buffer length.
+     * 
+     * 由于达到给定项缓冲区长度乘以总可能项数的最大流位置，导致发布失败。
+     * <p>
+     * 如果发生这种情况，则应关闭出版物并添加新的出版物。为了减少这种情况的发生，
+     * 增加项缓冲区长度。
      */
     public static final long MAX_POSITION_EXCEEDED = -5;
 
-    final long originalRegistrationId;
-    final long registrationId;
-    final long maxPossiblePosition;
-    final int channelStatusId;
-    final int streamId;
-    final int sessionId;
-    final int maxMessageLength;
-    final int maxFramedLength;
-    final int initialTermId;
-    final int maxPayloadLength;
-    final int positionBitsToShift;
-    final int termBufferLength;
-    volatile boolean isClosed = false;
-    boolean revokeOnClose = false;
+    // 以下是Publication类的成员变量，存储了与发布相关的各种信息
+    final long originalRegistrationId;  // 初始注册ID
+    final long registrationId;          // 注册ID
+    final long maxPossiblePosition;     // 最大可能位置
+    final int channelStatusId;          // 通道状态ID
+    final int streamId;                 // 流ID
+    final int sessionId;                // 会话ID
+    final int maxMessageLength;         // 最大消息长度
+    final int maxFramedLength;          // 最大帧长度
+    final int initialTermId;            // 初始任期ID
+    final int maxPayloadLength;         // 最大负载长度
+    final int positionBitsToShift;      // 位置移位位数
+    final int termBufferLength;         // 任期缓冲区长度
+    volatile boolean isClosed = false;  // 是否已关闭
+    boolean revokeOnClose = false;      // 关闭时是否撤销
 
-    final ReadablePosition positionLimit;
-    final UnsafeBuffer[] termBuffers;
-    final UnsafeBuffer logMetaDataBuffer;
-    final HeaderWriter headerWriter;
-    final LogBuffers logBuffers;
-    final ClientConductor conductor;
-    final String channel;
+    // 以下是与日志缓冲区和客户端导体相关的成员变量
+    final ReadablePosition positionLimit;     // 位置限制
+    final UnsafeBuffer[] termBuffers;         // 任期缓冲区数组
+    final UnsafeBuffer logMetaDataBuffer;     // 日志元数据缓冲区
+    final HeaderWriter headerWriter;          // 头部写入器
+    final LogBuffers logBuffers;              // 日志缓冲区
+    final ClientConductor conductor;          // 客户端导体
+    final String channel;                     // 通道
 
+    // Publication构造函数，初始化Publication实例的各种属性
     Publication(
-        final ClientConductor clientConductor,
-        final String channel,
-        final int streamId,
-        final int sessionId,
-        final ReadablePosition positionLimit,
-        final int channelStatusId,
-        final LogBuffers logBuffers,
-        final long originalRegistrationId,
-        final long registrationId)
+        final ClientConductor clientConductor,  // 客户端导体
+        final String channel,                   // 通道
+        final int streamId,                     // 流ID
+        final int sessionId,                    // 会话ID
+        final ReadablePosition positionLimit,   // 位置限制
+        final int channelStatusId,              // 通道状态ID
+        final LogBuffers logBuffers,            // 日志缓冲区
+        final long originalRegistrationId,      // 初始注册ID
+        final long registrationId)              // 注册ID
     {
+        // 初始化日志元数据缓冲区
         final UnsafeBuffer logMetaDataBuffer = logBuffers.metaDataBuffer();
+        // 设置任期缓冲区长度
         this.termBufferLength = logBuffers.termLength();
+        // 计算最大消息长度
         this.maxMessageLength = FrameDescriptor.computeMaxMessageLength(termBufferLength);
+        // 计算最大负载长度
         this.maxPayloadLength = LogBufferDescriptor.mtuLength(logMetaDataBuffer) - HEADER_LENGTH;
+        // 计算最大帧长度
         this.maxFramedLength = computeFragmentedFrameLength(maxMessageLength, maxPayloadLength);
+        // 计算最大可能位置
         this.maxPossiblePosition = termBufferLength * (1L << 31);
+        // 设置客户端导体
         this.conductor = clientConductor;
+        // 设置通道
         this.channel = channel;
+        // 设置流ID
         this.streamId = streamId;
+        // 设置会话ID
         this.sessionId = sessionId;
+        // 设置初始任期ID
         this.initialTermId = LogBufferDescriptor.initialTermId(logMetaDataBuffer);
+        // 设置任期缓冲区数组
         this.termBuffers = logBuffers.duplicateTermBuffers();
+        // 设置日志元数据缓冲区
         this.logMetaDataBuffer = logMetaDataBuffer;
+        // 设置日志缓冲区
         this.logBuffers = logBuffers;
+        // 设置初始注册ID
         this.originalRegistrationId = originalRegistrationId;
+        // 设置注册ID
         this.registrationId = registrationId;
+        // 设置位置限制
         this.positionLimit = positionLimit;
+        // 设置通道状态ID
         this.channelStatusId = channelStatusId;
+        // 设置位置移位位数
         this.positionBitsToShift = LogBufferDescriptor.positionBitsToShift(termBufferLength);
+        // 创建头部写入器实例
         this.headerWriter = HeaderWriter.newInstance(defaultFrameHeader(logMetaDataBuffer));
 
+        // 检查每个分区的尾计数器偏移量是否在范围内
         for (int i = 0; i < PARTITION_COUNT; i++)
         {
             final int tailCounterOffset = TERM_TAIL_COUNTERS_OFFSET + (i * SIZE_OF_LONG);
@@ -645,6 +691,10 @@ public abstract class Publication implements AutoCloseable
      * Errors will be delivered asynchronously to the {@link Aeron.Context#errorHandler()}. Completion can be
      * tracked by passing the returned correlation id to {@link Aeron#isCommandActive(long)}.
      *
+     * 通过注册ID异步删除多目的地广播发布中先前添加的目的地。
+     * <p>
+     * 错误将异步传递给{@link Aeron.Context#errorHandler()}。可以通过将返回的相关ID传递给{@link Aeron#isCommandActive(long)}来跟踪完成情况。
+     *
      * @param destinationRegistrationId for the destination to remove.
      * @return the correlationId for the command.
      */
@@ -658,31 +708,37 @@ public abstract class Publication implements AutoCloseable
         return conductor.asyncRemoveDestination(registrationId, destinationRegistrationId);
     }
 
+    // 内部关闭方法，设置isClosed标志为true
     void internalClose()
     {
         isClosed = true;
     }
 
+    // 获取日志缓冲区
     LogBuffers logBuffers()
     {
         return logBuffers;
     }
 
+    // 根据当前流位置和消息长度计算背压状态
     final long backPressureStatus(final long currentPosition, final int messageLength)
     {
+        // 检查加上消息长度后是否会超过最大可能位置
         if ((currentPosition + align(messageLength + HEADER_LENGTH, FRAME_ALIGNMENT)) >= maxPossiblePosition)
         {
-            return MAX_POSITION_EXCEEDED;
+            return MAX_POSITION_EXCEEDED;  // 返回超出最大位置的状态码
         }
 
+        // 检查日志缓冲区是否连接
         if (LogBufferDescriptor.isConnected(logMetaDataBuffer))
         {
-            return BACK_PRESSURED;
+            return BACK_PRESSURED;  // 返回背压状态码
         }
 
-        return NOT_CONNECTED;
+        return NOT_CONNECTED;  // 返回未连接状态码
     }
 
+    // 检查长度是否为正数，如果不是则抛出IllegalArgumentException
     final void checkPositiveLength(final int length)
     {
         if (length < 0)
@@ -691,6 +747,7 @@ public abstract class Publication implements AutoCloseable
         }
     }
 
+    // 检查负载长度是否有效（非负且不超过最大负载长度）
     final void checkPayloadLength(final int length)
     {
         if (length < 0)
@@ -705,6 +762,7 @@ public abstract class Publication implements AutoCloseable
         }
     }
 
+    // 检查消息长度是否超过最大消息长度限制
     final void checkMaxMessageLength(final int length)
     {
         if (length > maxMessageLength)
@@ -714,6 +772,7 @@ public abstract class Publication implements AutoCloseable
         }
     }
 
+    // 验证两个长度参数并计算它们的总和，确保不溢出
     static int validateAndComputeLength(final int lengthOne, final int lengthTwo)
     {
         if (lengthOne < 0)
@@ -739,6 +798,8 @@ public abstract class Publication implements AutoCloseable
      * Returns a string representation of a position. Generally used for errors. If the position is a valid error then
      * String name of the error will be returned. If the value is 0 or greater the text will be "NONE". If the position
      * is negative, but not a known error code then "UNKNOWN" will be returned.
+     *
+     * 返回位置的字符串表示形式。通常用于错误。如果位置是有效的错误，则返回错误的字符串名称。如果值为0或更大，则文本将是"NONE"。如果位置为负数，但不是已知错误代码，则返回"UNKNOWN"。
      *
      * @param position position value returned from a call to offer.
      * @return String representation of the error.
@@ -776,6 +837,8 @@ public abstract class Publication implements AutoCloseable
 
     /**
      * {@inheritDoc}
+     * 
+     * 返回此Publication对象的字符串表示形式，包含关键属性信息
      */
     public String toString()
     {
