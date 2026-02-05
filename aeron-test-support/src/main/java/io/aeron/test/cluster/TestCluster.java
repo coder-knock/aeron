@@ -47,9 +47,11 @@ import io.aeron.cluster.client.ControlledEgressListener;
 import io.aeron.cluster.client.EgressListener;
 import io.aeron.cluster.codecs.EventCode;
 import io.aeron.cluster.codecs.MessageHeaderDecoder;
+import io.aeron.cluster.codecs.MessageHeaderEncoder;
 import io.aeron.cluster.codecs.NewLeadershipTermEventDecoder;
 import io.aeron.cluster.codecs.SessionMessageHeaderDecoder;
 import io.aeron.cluster.service.Cluster;
+import io.aeron.cluster.service.ClusterClock;
 import io.aeron.driver.Configuration;
 import io.aeron.driver.MediaDriver;
 import io.aeron.driver.ReceiveChannelEndpointSupplier;
@@ -143,8 +145,13 @@ public final class TestCluster implements AutoCloseable
         "node1,localhost,localhost|" +
         "node2,localhost,localhost|";
 
+    public static final short EXTENSION_TEMPLATE_ID = 10001;
+    public static final short EXTENSION_SCHEMA_ID = 10002;
+    public static final short EXTENSION_VERSION = (short)1;
+
     private final DataCollector dataCollector = new DataCollector();
     private final ExpandableArrayBuffer msgBuffer = new ExpandableArrayBuffer();
+    private final MessageHeaderEncoder messageHeaderEncoder = new MessageHeaderEncoder();
     private final DefaultEgressListener defaultEgressListener = new DefaultEgressListener();
     private EgressListener egressListener = defaultEgressListener;
     private ControlledEgressListener controlledEgressListener;
@@ -197,6 +204,7 @@ public final class TestCluster implements AutoCloseable
     private Supplier<ConsensusModuleExtension> extensionSupplier;
     private IntFunction<SendChannelEndpointSupplier> sendChannelEndpointSupplier;
     private IntFunction<ReceiveChannelEndpointSupplier> receiveChannelEndpointSupplier;
+    private ClusterClock clusterClock;
 
     private TestCluster(
         final int clusterId,
@@ -448,6 +456,7 @@ public final class TestCluster implements AutoCloseable
                 .controlResponseChannel(ARCHIVE_LOCAL_CONTROL_CHANNEL))
             .sessionTimeoutNs(sessionTimeoutNs)
             .totalSnapshotDurationThresholdNs(TimeUnit.MILLISECONDS.toNanos(100))
+            .clusterClock(clusterClock)
             .authenticatorSupplier(authenticationSupplier)
             .authorisationServiceSupplier(authorisationServiceSupplier)
             .timerServiceSupplier(timerServiceSupplier)
@@ -967,6 +976,33 @@ public final class TestCluster implements AutoCloseable
         return messageCount;
     }
 
+    public void sendExtensionMessages(final int messageCount)
+    {
+        messageHeaderEncoder.wrap(msgBuffer, 0)
+            .blockLength(BitUtil.SIZE_OF_INT)
+            .templateId(EXTENSION_TEMPLATE_ID)
+            .schemaId(EXTENSION_SCHEMA_ID)
+            .version(EXTENSION_VERSION);
+
+        for (int i = 0; i < messageCount; i++)
+        {
+            msgBuffer.putInt(MessageHeaderEncoder.ENCODED_LENGTH, i);
+            try
+            {
+                pollUntilMessageSent(
+                    client.ingressPublication(),
+                    msgBuffer,
+                    0,
+                    MessageHeaderEncoder.ENCODED_LENGTH + BitUtil.SIZE_OF_INT);
+            }
+            catch (final Exception ex)
+            {
+                final String msg = "failed to send message " + i + " of " + messageCount + " cause=" + ex.getMessage();
+                throw new ClusterException(msg, ex);
+            }
+        }
+    }
+
     public void sendLargeMessages(final int messageCount)
     {
         final int messageLength = msgBuffer.putStringWithoutLengthAscii(0, LARGE_MSG);
@@ -1071,6 +1107,34 @@ public final class TestCluster implements AutoCloseable
             requireNonNull(client, "Client is not connected").pollEgress();
 
             final long position = client.offer(msgBuffer, 0, messageLength);
+            if (position > 0)
+            {
+                return;
+            }
+
+            if (Publication.ADMIN_ACTION == position)
+            {
+                continue;
+            }
+
+            if (Publication.MAX_POSITION_EXCEEDED == position)
+            {
+                throw new ClusterException("max position exceeded");
+            }
+
+            await(1);
+        }
+    }
+
+    public void pollUntilMessageSent(
+        final Publication pub,
+        final DirectBuffer buffer,
+        final int offset,
+        final int messageLength)
+    {
+        while (true)
+        {
+            final long position = pub.offer(buffer, offset, messageLength);
             if (position > 0)
             {
                 return;
@@ -1397,6 +1461,12 @@ public final class TestCluster implements AutoCloseable
     {
         final AtomicCounter controlToggle = getClusterControlToggle(leaderNode);
         assertTrue(ClusterControl.ToggleState.SUSPEND.toggle(controlToggle));
+    }
+
+    public void resumeCluster(final TestNode leaderNode)
+    {
+        final AtomicCounter controlToggle = getClusterControlToggle(leaderNode);
+        assertTrue(ClusterControl.ToggleState.RESUME.toggle(controlToggle));
     }
 
     public void awaitSnapshotCount(final long value)
@@ -2269,6 +2339,7 @@ public final class TestCluster implements AutoCloseable
         private List<String> hostnames;
         private Function<Aeron, Counter> errorCounterSupplier;
         private Function<Aeron, Counter> snapshotCounterSupplier;
+        private ClusterClock clusterClock;
         private long leaderHeartbeatTimeoutNs = LEADER_HEARTBEAT_TIMEOUT_NS;
         private long leaderHeartbeatIntervalNs = LEADER_HEARTBEAT_INTERVAL_NS;
         private long electionTimeoutNs = ELECTION_TIMEOUT_NS;
@@ -2478,6 +2549,12 @@ public final class TestCluster implements AutoCloseable
             return this;
         }
 
+        public Builder withClusterClock(final ClusterClock clusterClock)
+        {
+            this.clusterClock = clusterClock;
+            return this;
+        }
+
         public TestCluster start()
         {
             return start(nodeCount);
@@ -2525,6 +2602,7 @@ public final class TestCluster implements AutoCloseable
             testCluster.snapshotCounterSupplier = snapshotCounterSupplier;
             testCluster.sendChannelEndpointSupplier = sendChannelEndpointSupplier;
             testCluster.receiveChannelEndpointSupplier = receiveChannelEndpointSupplier;
+            testCluster.clusterClock = clusterClock;
 
             try
             {
